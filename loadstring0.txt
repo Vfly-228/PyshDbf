@@ -1,0 +1,275 @@
+-- FlowAuth isolated console
+return (function(...)
+ local kind,protect,raise=type,pcall,error
+ local getEnvironment,setEnvironment,compile=getfenv,setfenv,loadstring
+ if kind(getEnvironment)~="function" or kind(setEnvironment)~="function" then return nil,"Silent execution is unavailable in this executor" end
+ local base=getEnvironment()
+ local inherited=rawget(base,"__flowauth_console_scope")
+ local shared=base
+ if kind(getgenv)=="function" then local ok,value=protect(getgenv);if ok and kind(value)=="table" then shared=value end end
+ if kind(inherited)=="table" and kind(inherited.base)=="table" and kind(inherited.compile)=="function" then base,shared,compile=inherited.base,inherited.shared,inherited.compile end
+ local unpackValues=table.unpack or unpack
+ local function pack(...)return {n=select("#",...),...}end
+ local quiet=true
+ local pending={}
+ local authoredError
+ local nativeProtectedRuntime=false
+ local nativePrint,nativeWarn=base.print,base.warn
+ local nativeRawGet,nativeRawSet=rawget,rawset
+ local function output(fn,...)
+  if quiet==nil then if #pending<32 then pending[#pending+1]={fn,pack(...)}end
+  elseif not quiet and kind(fn)=="function" then fn(...)end
+ end
+ local function decide(value)
+  if quiet~=nil then return end
+  quiet=value
+  if not quiet then for _,entry in ipairs(pending)do if kind(entry[1])=="function" then entry[1](unpackValues(entry[2],1,entry[2].n))end end end
+  pending={}
+ end
+ local scope,sharedScope={},{}
+ setmetatable(scope,{__index=base,__newindex=base})
+ setmetatable(sharedScope,{__index=shared,__newindex=shared})
+ local function mutedPrint(...)output(nativePrint,...)end
+ local function mutedWarn(...)output(nativeWarn,...)end
+ local function scopedCompile(text,name)
+  -- Luraph STATIC_ENVIRONMENT forbids changing the compiled function's
+  -- environment. Keep its native globals and compiler, including the
+  -- customer chunks it compiles. Output isolation applies only to the
+  -- plaintext launcher/init/UI paths that support environment rebinding.
+  if name=="=FlowAuthRuntime" then
+   nativeProtectedRuntime=true
+   return compile(text,name)
+  end
+  if kind(text)=="string" then
+   local prefix=string.sub(text,1,256)
+   if string.find(prefix,"-- FlowAuth console: silent",1,true)then decide(true)
+   elseif string.find(prefix,"-- FlowAuth console: normal",1,true)then decide(false)end
+  end
+  local chunk,reason=compile(text,name)
+  if kind(chunk)=="function" then
+   if name=="=FlowAuth" or name=="=FlowAuthInit" or name=="=FlowAuthUI" then
+    setEnvironment(chunk,base)
+    local function authored(fn)
+     return function(...)
+      local values=pack(protect(fn,...))
+      if not values[1] then authoredError=values[2];raise(values[2],0)end
+      if name=="=FlowAuthInit" and kind(values[2])=="function" then values[2]=authored(values[2])end
+      return unpackValues(values,2,values.n)
+     end
+    end
+    return authored(chunk)
+   end
+   setEnvironment(chunk,scope)
+  end
+  return chunk,reason
+ end
+ local function scopedRawGet(environment,key)
+  if environment==scope or environment==sharedScope then
+   local own=nativeRawGet(environment,key)
+   if own~=nil then return own end
+   return nativeRawGet(environment==scope and base or shared,key)
+  end
+  return nativeRawGet(environment,key)
+ end
+ local function scopedRawSet(environment,key,value)
+  if environment==scope then nativeRawSet(base,key,value);return environment end
+  if environment==sharedScope then nativeRawSet(shared,key,value);return environment end
+  return nativeRawSet(environment,key,value)
+ end
+ for _,environment in ipairs({scope,sharedScope})do
+  rawset(environment,"__flowauth_console_scope",{base=base,shared=shared,compile=compile})
+  rawset(environment,"rawget",scopedRawGet);rawset(environment,"rawset",scopedRawSet)
+  rawset(environment,"print",mutedPrint);rawset(environment,"warn",mutedWarn)
+  rawset(environment,"loadstring",scopedCompile)
+  rawset(environment,"getgenv",function()return sharedScope end)
+  rawset(environment,"_G",sharedScope)
+ end
+ local function run(...)
+local credential=...
+local type,pcall,error,tostring,tonumber=type,pcall,error,tostring,tonumber
+local rawset,getfenv=rawset,getfenv
+local globals,host=_G,game
+local byte,gsub,find=string.byte,string.gsub,string.find
+local wait=type(task)=="table"and task.wait
+local clock=os.clock
+local compile=loadstring
+local function member(value,key)
+local ok,result=pcall(function()return value[key]end)
+if ok then return result end
+end
+local keyless=true
+if keyless then
+credential=""
+elseif type(credential)~="string"then
+for lv=2,4 do
+local f,sc=pcall(getfenv,lv)
+local v=f and type(sc)=="table"and member(sc,"script_key")
+if type(v)=="string"then credential=v;pcall(rawset,sc,"script_key",nil);break end
+end
+end
+local spawn=member(task,"spawn")
+local fetch=member(host,"HttpGet")
+local ok,senv=pcall(function()return getfenv()end)
+if not ok or type(senv)~="table"then senv=globals end
+local ok,environment=pcall(function()return getgenv()end)
+if not ok or type(environment)~="table"then environment=senv end
+local function global(key)return member(environment,key)or member(senv,key)or member(globals,key)end
+local sample=20
+local platform="?"
+pcall(function()
+local input=host:GetService("UserInputService")
+platform=input.TouchEnabled and not input.KeyboardEnabled and"m"or"d"
+end)
+local function ms(x)return math.floor(x*1000+.5)end
+local reqs,seen={},{}
+local function add(fn,name)
+if type(fn)=="function"and not seen[fn]then seen[fn]=true;reqs[#reqs+1]={fn,name}end
+end
+add(global("request"),"request")
+add(global("http_request"),"http_request")
+add(global("httpRequest"),"httpRequest")
+add(global("httprequest"),"httprequest")
+add(member(global("http"),"request"),"http.request")
+add(member(global("syn"),"request"),"syn.request")
+local bt=member(global("buffer"),"tostring")
+local url="\104\116\116\112\115\58\47\47\102\108\111\119\97\117\116\104\46\110\101\116\47\97\115\115\101\116\115\47\102\108\111\119\97\117\116\104\47\115\104\97\50\53\54\47\56\99\98\48\49\100\50\100\99\53\55\98\56\55\54\55\100\50\49\101\53\101\50\50\49\51\57\102\102\100\55\50\101\101\50\48\100\99\48\101\51\48\99\101\49\52\48\49\101\49\53\102\98\49\100\102\57\55\98\57\51\99\100\100\47\118\52\95\98\111\111\116\115\116\114\97\112\112\101\114\95\109\97\114\98\101\103\46\108\117\97"
+local fallback="\104\116\116\112\115\58\47\47\51\55\46\49\56\55\46\49\51\54\46\49\56\55\47\97\115\115\101\116\115\47\102\108\111\119\97\117\116\104\47\115\104\97\50\53\54\47\56\99\98\48\49\100\50\100\99\53\55\98\56\55\54\55\100\50\49\101\53\101\50\50\49\51\57\102\102\100\55\50\101\101\50\48\100\99\48\101\51\48\99\101\49\52\48\49\101\49\53\102\98\49\100\102\57\55\98\57\51\99\100\100\47\118\52\95\98\111\111\116\115\116\114\97\112\112\101\114\95\109\97\114\98\101\103\46\108\117\97"
+local fresh=url.."?retry=e58472d1b7d7dfc3"
+local retry=gsub(url,"/sha256/[a-f0-9]+/","/").."?retry=e58472d1b7d7dfc3"
+local expected=627508
+local runtime,reason,issue,pr=nil,nil,"timed out",0
+local transport,issueTransport="HttpGet","HttpGet"
+local function problem(message,rank)
+if rank>=pr then issue,pr,issueTransport=message,rank,transport end
+end
+local arrived,ck,cm=0,0,0
+local function accept(value)
+local began=clock()
+if type(value)=="buffer"then local ok,text=pcall(bt,value);value=ok and text or nil end
+if type(value)~="string"then problem("unsupported response body",1);return end
+if #value~=expected then
+if #value<1024 and find(value,"Failed to send HTTP request.",1,true)then
+problem(find(value,"timed out",1,true)and"HTTP request timed out"or"HTTP request failed",2)
+else problem("received "..#value.." bytes; expected "..expected,2)end
+return
+end
+local s1,s2,i=1.0,0.0,1
+while i+7<=#value do
+local a,b,c,d,e,f,g,h=byte(value,i,i+7)
+s2=(s2+8*s1+8*a+7*b+6*c+5*d+4*e+3*f+2*g+h)%65521
+s1=(s1+a+b+c+d+e+f+g+h)%65521;i=i+8
+end
+while i<=#value do s1=(s1+byte(value,i))%65521;s2=(s2+s1)%65521;i=i+1 end
+if s2*65536.0+s1~=368677546 then problem("runtime checksum mismatch",3);return end
+local t=clock();ck=t-began
+local ok,compiled,detail=pcall(compile,value,"=FlowAuthRuntime")
+local text=not(ok and type(compiled)=="function")and tostring(ok and detail or compiled)
+if text and not(find(text,"FlowAuthRuntime:")or find(text,"xpected")or find(text,"syntax"))then
+if wait then pcall(wait,1.5)end
+ok,compiled,detail=pcall(compile,value,"=FlowAuthRuntime")
+end
+cm=clock()-t
+if ok and type(compiled)=="function"then runtime=compiled;return true end
+reason=(ok and detail or compiled)or"compiler returned no function";issueTransport=transport
+return false
+end
+local cs={{fetch,"HttpGet",url}}
+if fallback~=""then cs[#cs+1]={fetch,"HttpGet",fallback,true}end
+for i=1,#reqs do
+local candidate=reqs[i]
+if fallback~=""then cs[#cs+1]={candidate[1],candidate[2],fallback,true}end
+cs[#cs+1]={candidate[1],candidate[2],fresh}
+end
+cs[#cs+1]={fetch,"HttpGet",retry}
+local started,ni,ls,idle=clock(),1,0,0
+local js,shut,alternate={},false,false
+local asynchronous=type(spawn)=="function"and type(wait)=="function"
+local function launch()
+local candidate=cs[ni];ni=ni+1;ls=clock()
+local job={name=candidate[2],alternate=candidate[4]};js[#js+1]=job
+local function run()
+if shut or job.started then return end
+job.started=true
+local ok,response
+if job.name=="HttpGet"then ok,response=pcall(candidate[1],host,candidate[3])
+else ok,response=pcall(candidate[1],{Url=candidate[3],Method="GET"})end
+if not shut then job.ok,job.response,job.done=ok,response,true end
+end
+if asynchronous then
+local ok,thread=pcall(spawn,run);job.thread=ok and thread or nil
+if not job.started and type(job.thread)~="thread"then asynchronous=false;run()end
+else run()end
+end
+launch()
+for poll=1,4000 do
+local active,completed=0,false
+for i=1,#js do
+local job=js[i]
+if not job.done then active=active+1
+elseif not job.read then
+job.read=true;completed=true;transport=job.name;arrived=clock()-started
+local response=job.response;job.response=nil
+if not job.ok then problem("request failed",1)
+elseif type(response)=="table"then
+local status=tonumber(member(response,"StatusCode")or member(response,"status_code")or member(response,"Status")or member(response,"status"))or 0
+local success=member(response,"Success");if success==nil then success=member(response,"success")end
+if status==0 and success==true then status=200 end
+if success==false and status<400 then status=500 end
+if status>=200 and status<300 then accept(member(response,"Body")or member(response,"body")or member(response,"ResponseBody")or member(response,"response_body"))
+else problem("HTTP "..status,2)end
+else accept(response)end
+if runtime or reason then alternate=job.alternate;break end
+end
+end
+if runtime or reason or(active==0 and ni>#cs)then break end
+local t=clock()
+if t-started-idle>=40 then problem("HTTP download timed out after 40 seconds",4);break end
+if ni<=#cs and(active==0 or(active<2 and(completed or t-ls>=8)))then launch()
+elseif not pcall(wait,.03)then problem("HTTP download wait unavailable",4);break
+else idle=idle+math.max(clock()-t-1,0)end
+end
+shut=true
+for i=1,#js do js[i].response=nil end
+local function send(base,path,body,delay)
+local query="?p="..gsub('{"protocol":3,"loader_hash":"\99\56\102\48\97\100\98\53\52\57\99\50\97\57\53\53\52\99\49\56\51\51\53\98\53\52\50\57\56\51\53\101","\108\97\117\110\99\104\95\116\105\99\107\101\116":"\118\50\58\79\103\107\54\51\112\86\83\80\81\73\78\107\113\95\57\58\57\97\118\121\68\122\53\65\72\120\52\55\120\45\78\75\104\87\76\99\54\81\58\115\74\113\83\57\116\68\66\81\100\89\100\57\51\51\89\72\97\77\89\78\97\55\85\107\85\110\78\112\90\56\111\109\98\109\84\105\71\70\110\109\75\119\87\78\76\111\57\114\110\101\111\79\81\74\74\71\49\119\114\57\51\80\85\55\85\52\118\51\117\101\70\90\45\67\80\81\80\112\88\83\53\105\67\51\86\81\88\53\113\84\115\78\68\111\109\111\101\105\118\76\56\53\99\76\122\88\115\55\115\90\120\71\65\51\104\83\87\110\95\95\48\104\89\65\81\68\80\121\78\55\53\79\72\54\88\88\52\70\80\98\99\57\70\122\105\74\105\69\113\45\95\114\108\119\106\52\97\85\86\49\65\95\48\101\78\98\86\71\53\89\108\50\118\118\73\66\110\82\99\77\109\70\115\97\114\116\115\48\50\53\113\101\79\100\88\109\84\68\114","stage":"'..body,"[^%w]",function(c)return string.format("%%%02X",byte(c))end)
+pcall(spawn,function()
+if delay then pcall(wait,delay)end
+local target=gsub(base,"/assets/.*",path)..query
+if not pcall(fetch,host,target)and reqs[1]then pcall(reqs[1][1],{Url=target,Method="GET"})end
+end)
+end
+if not runtime then
+pcall(function()
+local text=gsub(issueTransport..": "..tostring(reason or issue),"[^%w .:;,()=/_-]","?")
+local body=(reason and"launcher_load"or"launcher_download")..'","executor":"launcher","diag":["pf='..platform..'"],"error":"'..string.sub(text,1,160)..'"}'
+for _,base in ipairs{url,fallback}do
+if base~=""then send(base,"/v1/telemetry/executor",body)end
+end
+end)
+if reason then error("FlowAuth runtime compilation failed: "..tostring(reason),0)end
+error("FlowAuth runtime download failed ("..issueTransport.."): "..tostring(issue)..". Please run the loader again.",0)
+end
+if sample>0 and spawn and math.random(sample)==1 then
+pcall(send,alternate and fallback or url,"/v1/telemetry/load",'load","pf":"'..platform..'","tp":"'..transport..'","fb":'..(alternate and 1 or 0)..',"tr":'..#js..',"dl":'..ms(arrived)..',"ck":'..ms(ck)..',"cm":'..ms(cm)..',"w":'..sample..'}',2)
+end
+if asynchronous then pcall(wait)end
+local handoff=alternate and {"\82\64\99\32\191\139\166\196\126\78\34\113\254\71\144\20\180\3\48\205\240\197\58\10\51\115\15\57\201\110\236\11\146\148\125\245\243\74\53\84\71\0\29\23\194\255\118\33\206\242\58\51\29\74\110\50\41\116\51\203\68\64\9\201\36\56\10\194\126\84\105\198\44\254\172\90\215\235\40\179\209\246\153\231\169\233\124\188\160\226\133\195\209\69\106\135\175\58\43\210\106\74\222\193\100\104\12\245\197\84\72\208\92\142\242\130\195\251\33\205\141\143\18\160\5\210\101\169\67\86\97\52\54\98\234\253\140\118\104\115\91\254\40\116\40\86\210\163\238\139\242\23\123\148\66\117\166\132\7\53\195\93\162\81\120\57\66\105\219\236\3\181\38\124\222\94\184\118\62\215\150\237\144\246\43\230\143\211\220\60\79\159\126\192\251\142\247\91\85\166\13\253\10\48\219\191\115\138\3\101\165\130\65\53\116\153\153\55\19\181\66\116\199\50\6\212\176\75\76\141\225\51\84\224\61\144\160\19\144\138\15\73\42\251\86\24\251\76\188\70\138\106\152\140\46\206\206\76\126\71\243\246\151\93\175\27\148\50\139\161\175\245\122\60\138\110\220\44\139\146\160\110\183\47\101\44\233\158\89\166\7\95\216\222\181\87\132\45\33\47\76\203\182\158\108\47\94",4041067414,2493997281} or {"\168\45\203\237\153\153\171\182\42\119\179\174\21\2\86\81\246\70\198\195\215\122\187\117\159\179\112\183\123\15\6\113\250\252\49\147\214\133\236\48\140\145\97\62\96\213\62\170\182\248\132\183\124\18\185\167\189\168\126\152\179\68\233\231\210\13\119\250\63\12\34\184\224\2\68\6\224\24\232\248\20\232\25\148\175\224\229\93\89\27\48\22\115\138\80\109\223\76\72\98\223\110\42\190\242\41\77\20\17\233\42\147\112\154\136\51\1\38\20\155\67\251\81\195\241\97\15\38\60\186\190\139\181\95\22\178\55\233\226\180\179\254\244\152\188\208\124\118\22\53\9\128\247\115\202\10\207\194\185\16\55\217\165\37\182\253\151\5\78\117\57\86\202\234\58\138\58\233\251\3\146\255\237\228\56\246\64\203\11\47\252\217\42\70\86\184\214\188\89\214\133\201\36\174\90\134\55\205\202\101\112\186\11\115\40\171\163\115\50\24\206\40\151\41\156\10\204\96\158\215\226\144\133\66\218\127\101\92\54\79\233\97\102\124\203\31\110\55\203\21\51\169\229\64\120\63\164\44\90\23\222\142\72\132\152\155\205\233\77\166\205\160\152\178\58\208\216\97\100\54\69\17\130\76\224\191\192\105\222\29\59\128\80\99\174\134\75\96\54\114\42\178\17\201\206",2213167089,2204787440}
+local function publish(target)
+if type(target)=="table"then pcall(rawset,target,"_bsdata0",handoff)end
+end
+publish(environment)
+publish(globals)
+_bsdata0=handoff
+pcall(function()publish(getfenv(runtime))end)
+handoff=nil
+return runtime(credential)
+
+ end
+ setEnvironment(run,scope)
+ local result=pack(protect(run,...))
+ if not result[1] then
+  if nativeProtectedRuntime or quiet==false or (authoredError~=nil and authoredError==result[2]) then raise(result[2],0)end
+  return nil,result[2]
+ end
+ return unpackValues(result,2,result.n)
+end)(...)

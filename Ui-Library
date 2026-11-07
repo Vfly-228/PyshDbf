@@ -577,6 +577,7 @@ end
 function Window:SetVisible(v)
 	self.Visible = v
 	self.Main.Visible = v
+	if self.MiniButton then tween(self.MiniButton, 0.15, {BackgroundColor3 = v and Theme.Accent or Color3.fromRGB(28, 28, 36)}) end
 	if not v then self:ClosePopup() end
 end
 
@@ -738,6 +739,33 @@ function Library:CreateWindow(o)
 
 	-- overlay for popups / toasts
 	win.Overlay = new("Frame", {Name = "Overlay", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 10, Parent = main})
+
+	-- mini toggle button (lives on the ScreenGui so it stays usable when the window is hidden)
+	local mini = button({Name = "MiniToggle", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 12, 0.5, 0),
+		Size = UDim2.fromOffset(44, 44), BackgroundColor3 = Color3.fromRGB(28, 28, 36), BackgroundTransparency = 0.15,
+		Text = "❄", Font = Enum.Font.GothamBold, TextSize = 20, TextColor3 = Theme.Text, ZIndex = 20, Parent = gui}, {corner(22), stroke(0.7)})
+	new("UIScale", {Scale = math.clamp(math.min(gui.AbsoluteSize.X, gui.AbsoluteSize.Y) / 720, 0.85, 1.25), Parent = mini})
+
+	local miniDragging, miniMoved, miniStart, miniPos = false, false, nil, nil
+	mini.InputBegan:Connect(function(i)
+		if isPress(i) then miniDragging, miniMoved, miniStart, miniPos = true, false, i.Position, mini.Position end
+	end)
+	conn(UIS.InputChanged, function(i)
+		if miniDragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			local d = i.Position - miniStart
+			if math.abs(d.X) + math.abs(d.Y) > 8 then miniMoved = true end
+			mini.AnchorPoint = Vector2.new(0, 0)
+			mini.Position = UDim2.new(miniPos.X.Scale, miniPos.X.Offset + d.X, miniPos.Y.Scale, miniPos.Y.Offset + d.Y)
+		end
+	end)
+	conn(UIS.InputEnded, function(i) if isPress(i) then miniDragging = false end end)
+	mini.MouseButton1Click:Connect(function()
+		if miniMoved then return end
+		win:SetVisible(not win.Visible)
+		tween(mini, 0.15, {BackgroundColor3 = win.Visible and Theme.Accent or Color3.fromRGB(28, 28, 36)})
+	end)
+
+	win.MiniButton = mini
 
 	conn(UIS.InputBegan, function(i, gp)
 		if not gp and i.KeyCode == win.ToggleKey then win:SetVisible(not win.Visible) end
